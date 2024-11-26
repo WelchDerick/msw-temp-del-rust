@@ -127,8 +127,7 @@ fn print_progress(current: usize, total: usize) {
     io::stdout().flush().unwrap();
 }
 
-/// 삭제 작업을 수행하는 함수
-/// 실패한 파일/폴더는 반환
+// 삭제 작업을 수행하는 함수, 실패한 파일/폴더는 반환
 fn delete_files_and_folders(files_and_folders: &[PathBuf]) -> Vec<PathBuf> {
     println!("\n삭제를 시작합니다...");
     let start_time = Instant::now();
@@ -165,7 +164,7 @@ fn delete_files_and_folders(files_and_folders: &[PathBuf]) -> Vec<PathBuf> {
     failed_deletions // 실패한 항목을 반환
 }
 
-/// 실패한 항목들을 텍스트 파일에 저장하는 함수
+// 실패한 항목들을 텍스트 파일에 저장하는 함수
 fn save_errors_to_file(failed_deletions: &[PathBuf]) -> io::Result<()> {
     let mut file = File::create("error_log.txt")?; // 파일 열기, 없으면 생성
     for path in failed_deletions {
