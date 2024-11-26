@@ -6,9 +6,12 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 rayon = "1.7"
-dirs = "4.0"
+dirs = "5.0.1"
 walkdir = "2.3.2"
 num_cpus = "1.15"
+regex = "1"
+log = "0.4"
+env_logger = "0.11.5"
 
 [build-dependencies]
 winres = "0.1"
