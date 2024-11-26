@@ -1,12 +1,12 @@
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use std::io::{self, Write}; // 'Write'만 import
+use std::io::{self, Write};
 use walkdir::WalkDir;
 use std::env;
-use std::process; // process 모듈 추가
+use std::process;
 
-/// 대상 폴더 경로를 가져오는 함수
+// 대상 폴더 경로를 가져오는 함수
 fn get_target_folder() -> PathBuf {
     let temp_dir = env::var_os("TEMP")
         .and_then(|temp| {
@@ -85,7 +85,7 @@ fn main() {
     }
 }
 
-/// `walkdir`을 사용하여 파일과 폴더를 검색
+// `walkdir`을 사용하여 파일과 폴더를 검색
 fn collect_files_and_folders(path: &Path) -> Vec<PathBuf> {
     let mut files_and_folders = Vec::new();
     let total_files = WalkDir::new(path)
