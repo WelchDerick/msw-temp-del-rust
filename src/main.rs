@@ -1,33 +1,51 @@
-use std::fs::{ self, File };
-use std::path::{ Path, PathBuf };
+use std::fs::{self, File};
+use std::path::{Path, PathBuf};
 use std::time::Instant;
-use std::io::{ self, Write }; // 'Write'만 import
+use std::io::{self, Write}; // 'Write'만 import
 use walkdir::WalkDir;
+use std::env;
+use std::process; // process 모듈 추가
+
+/// 대상 폴더 경로를 가져오는 함수
+fn get_target_folder() -> PathBuf {
+    let temp_dir = env::var_os("TEMP")
+        .and_then(|temp| {
+            let path = PathBuf::from(temp).join("nexon/MapleStory Worlds");
+            if path.exists() {
+                Some(path)
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| {
+            // 홈 디렉토리가 없는 경우 에러 로그 출력 후 프로그램 종료
+            let home_dir = dirs::home_dir().expect("Could not determine the user home directory");
+            home_dir.join("AppData/Local/Temp/nexon/MapleStory Worlds")
+        });
+
+    temp_dir
+}
 
 fn main() {
-    // 폴더 경로 설정
-    let folder_path = dirs
-        ::home_dir()
-        .map(|mut path| {
-            path.push("AppData/Local/Temp/nexon/MapleStory Worlds");
-            path
-        })
-        .expect("Could not determine the user home directory");
+    // 폴더 경로 가져오기
+    let folder_path = get_target_folder();
 
     // 경로 존재 여부 확인
     if !folder_path.exists() {
-        eprintln!("{} 경로를 찾을 수 없습니다.", folder_path.display());
-        return;
+        eprintln!("Error: 경로를 찾을 수 없습니다. 경로: {}", folder_path.display());
+        process::exit(1); // 경로가 없으면 종료
     }
 
-    println!("파일 및 폴더 검색 중...");
+    println!("대상 폴더 경로: {}", folder_path.display());
+    println!("\n파일 및 폴더 검색 중...\n");
+
     let start_time = Instant::now();
 
     // 파일 및 폴더 검색
     let files_and_folders = collect_files_and_folders(&folder_path);
 
     let duration = start_time.elapsed();
-    println!("\n검색 완료! (소요 시간: {:.2?})", duration);
+    println!("\n\n검색 완료! (소요 시간: {:.2?})", duration);
 
     if files_and_folders.is_empty() {
         eprintln!("폴더나 파일이 존재하지 않습니다.");
@@ -91,8 +109,21 @@ fn collect_files_and_folders(path: &Path) -> Vec<PathBuf> {
 }
 
 fn print_progress(current: usize, total: usize) {
-    let progress = ((current as f32) / (total as f32)) * 100.0;
-    print!("\r진행 중: [{:<50}] {:.2}%", "=".repeat((progress / 2.0) as usize), progress);
+    let progress = (current as f32) / (total as f32); // 진행 비율
+    let bar_width = 50; // 로딩 바의 너비
+
+    // 채워진 부분
+    let filled_width = (progress * bar_width as f32).round() as usize;
+
+    // 나머지 부분
+    let empty_width = bar_width - filled_width;
+
+    // 채워진 부분은 '█', 비어있는 부분은 ' '로 채움
+    let filled_bar = "█".repeat(filled_width);
+    let empty_bar = " ".repeat(empty_width);
+
+    // 진행 상태를 출력
+    print!("\r진행 중: [{}{}] {:.2}%", filled_bar, empty_bar, progress * 100.0);
     io::stdout().flush().unwrap();
 }
 
@@ -130,22 +161,6 @@ fn delete_files_and_folders(files_and_folders: &[PathBuf]) -> Vec<PathBuf> {
 
     let duration = start_time.elapsed();
     println!("\n삭제 완료! (소요 시간: {:.2?})", duration);
-
-    // 삭제 실패한 항목들을 처리할 로직 추가
-    if !failed_deletions.is_empty() {
-        println!("\n삭제 실패한 항목들이 있습니다. 다시 시도하시겠습니까? (y/n): ");
-        let mut retry_input = String::new();
-        std::io::stdin().read_line(&mut retry_input).expect("입력 오류");
-
-        if retry_input.trim().to_lowercase() == "y" {
-            // 실패한 항목들에 대해 다시 시도
-            delete_files_and_folders(&failed_deletions);
-        } else {
-            println!("삭제 작업을 취소했습니다.");
-        }
-    } else {
-        println!("모든 파일 및 폴더가 성공적으로 삭제되었습니다.");
-    }
 
     failed_deletions // 실패한 항목을 반환
 }
