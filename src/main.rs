@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 use std::io::{self, Write};
 use walkdir::WalkDir;
-use std::env;
+use std::env; // std::env로 수정
 use std::process;
 
 // 대상 폴더 경로를 가져오는 함수
@@ -18,7 +18,6 @@ fn get_target_folder() -> PathBuf {
             }
         })
         .unwrap_or_else(|| {
-            // 홈 디렉토리가 없는 경우 에러 로그 출력 후 프로그램 종료
             let home_dir = dirs::home_dir().expect("Could not determine the user home directory");
             home_dir.join("AppData/Local/Temp/nexon/MapleStory Worlds")
         });
@@ -52,14 +51,18 @@ fn main() {
         return;
     }
 
-    // 검색된 파일/폴더 출력
+    // 파일/폴더 개수와 함께 청크 개수 출력
+    let chunk_size = 100; // 한 청크 당 처리할 파일 수
+    let chunk_count = (files_and_folders.len() + chunk_size - 1) / chunk_size; // 총 청크 수 계산
     println!("\n검색된 총 파일 및 폴더 수: {}", files_and_folders.len());
+    println!("이 파일/폴더들을 {}개의 청크로 나누어 처리합니다.\n", chunk_count);
     println!("삭제를 진행하시겠습니까? (y/n): ");
     let mut input = String::new();
     io::stdin().read_line(&mut input).expect("입력 오류");
 
     if input.trim().to_lowercase() == "y" {
-        let failed_deletions = delete_files_and_folders(&files_and_folders);
+        // 청크 단위로 삭제 처리
+        let failed_deletions = delete_files_in_chunks(&files_and_folders, chunk_size);
 
         // 삭제 실패한 항목들 다시 시도
         if !failed_deletions.is_empty() {
@@ -80,8 +83,6 @@ fn main() {
                 println!("삭제 실패 오류가 error_log.txt 파일에 저장되었습니다.");
             }
         }
-    } else {
-        println!("삭제 작업을 취소했습니다.");
     }
 }
 
@@ -93,7 +94,7 @@ fn collect_files_and_folders(path: &Path) -> Vec<PathBuf> {
         .filter_map(|entry| entry.ok())
         .count();
 
-    println!("검색할 총 파일/폴더 개수: {}", total_files);
+    println!("검색할 총 파일/폴더 개수: {}\n", total_files);
 
     let mut current = 0;
     WalkDir::new(path)
@@ -109,57 +110,85 @@ fn collect_files_and_folders(path: &Path) -> Vec<PathBuf> {
 }
 
 fn print_progress(current: usize, total: usize) {
+    if total == 0 {
+        println!("진행 상태를 계산할 수 없습니다: 총 파일 수가 0입니다.");
+        return;
+    }
+
     let progress = (current as f32) / (total as f32); // 진행 비율
-    let bar_width = 50; // 로딩 바의 너비
+    let total_blocks = 50; // 막대의 총 블록 수
+    let ratio = progress * (total_blocks as f32); // 현재 진행률 계산
+    let filled = ratio.floor() as usize; // 채워진 블록 수
+    let remainder_index = ((ratio - (filled as f32)) * 8.0 + 0.5).floor() as usize; // 남은 부분의 세부 블록
+    let bar = ["　", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]; // 그래프 요소
 
-    // 채워진 부분
-    let filled_width = (progress * bar_width as f32).round() as usize;
+    let mut bar_display = String::new();
 
-    // 나머지 부분
-    let empty_width = bar_width - filled_width;
+    // 막대 생성
+    for _ in 0..filled {
+        bar_display.push_str(bar[8]); // 완전히 채워진 블록
+    }
+    if filled < total_blocks {
+        bar_display.push_str(bar[remainder_index]); // 남은 부분
+    }
+    for _ in filled + 1..total_blocks {
+        bar_display.push_str(bar[0]); // 공백
+    }
 
-    // 채워진 부분은 '█', 비어있는 부분은 ' '로 채움
-    let filled_bar = "█".repeat(filled_width);
-    let empty_bar = " ".repeat(empty_width);
+    // 덮어쓰기 보장
+    let clear_line = format!("\r{: <width$}", "", width = 60); // 너비 60으로 초기화
+    print!("{}", clear_line); // 기존 출력 삭제
 
-    // 진행 상태를 출력
-    print!("\r진행 중: [{}{}] {:.2}%", filled_bar, empty_bar, progress * 100.0);
-    io::stdout().flush().unwrap();
+    // 퍼센트와 진행 바를 같은 줄에 출력
+    print!("\r{}% {}", (progress * 100.0).round(), bar_display);
+
+    io::stdout().flush().unwrap(); // 즉시 출력
 }
 
-// 삭제 작업을 수행하는 함수, 실패한 파일/폴더는 반환
-fn delete_files_and_folders(files_and_folders: &[PathBuf]) -> Vec<PathBuf> {
+// 삭제 작업을 청크 단위로 수행하는 함수, 실패한 파일/폴더는 반환
+fn delete_files_in_chunks(files_and_folders: &[PathBuf], chunk_size: usize) -> Vec<PathBuf> {
     println!("\n삭제를 시작합니다...");
     let start_time = Instant::now();
     let mut failed_deletions = Vec::new();
     let total_files = files_and_folders.len();
 
-    files_and_folders
-        .iter()
-        .enumerate()
-        .for_each(|(index, path)| {
+    // 파일을 청크 단위로 나누어서 삭제
+    let chunks = files_and_folders.chunks(chunk_size);
+
+    for (chunk_index, chunk) in chunks.enumerate() {
+        let chunk_start_time = Instant::now();
+
+        for (index, path) in chunk.iter().enumerate() {
             if path.is_file() {
                 if let Err(e) = fs::remove_file(path) {
                     eprintln!("파일 삭제 실패: {} - {}", path.display(), e);
                     failed_deletions.push(path.to_path_buf()); // 실패한 파일 저장
                 } else {
-                    println!("파일 삭제 완료: {}", path.display());
+                    print!("\r파일 삭제 완료: {}", path.display()); // 줄 바꿈 없이 출력
+                    io::stdout().flush().unwrap(); // 즉시 출력
                 }
             } else if path.is_dir() {
                 if let Err(e) = fs::remove_dir_all(path) {
                     eprintln!("폴더 삭제 실패: {} - {}", path.display(), e);
                     failed_deletions.push(path.to_path_buf()); // 실패한 폴더 저장
                 } else {
-                    println!("폴더 삭제 완료: {}", path.display());
+                    print!("\r폴더 삭제 완료: {}", path.display()); // 줄 바꿈 없이 출력
+                    io::stdout().flush().unwrap(); // 즉시 출력
                 }
             }
 
-            // 삭제 진행률 출력
-            print_progress(index + 1, total_files);
-        });
+            // 청크 내에서 진행 상황 출력
+            print_progress((chunk_index * chunk_size) + index + 1, total_files);
+        }
+
+        let chunk_duration = chunk_start_time.elapsed();
+        // 청크 완료 출력 (진행 상태 갱신)
+        print!("\r{} 번째 청크 삭제 완료! (소요 시간: {:.2?})", chunk_index + 1, chunk_duration);
+        io::stdout().flush().unwrap(); // 즉시 출력
+    }
 
     let duration = start_time.elapsed();
-    println!("\n삭제 완료! (소요 시간: {:.2?})", duration);
+    println!("\n전체 삭제 완료! (소요 시간: {:.2?})", duration);
 
     failed_deletions // 실패한 항목을 반환
 }
@@ -171,4 +200,23 @@ fn save_errors_to_file(failed_deletions: &[PathBuf]) -> io::Result<()> {
         writeln!(file, "삭제 실패: {}", path.display())?; // 실패한 항목 기록
     }
     Ok(())
+}
+
+// 실패한 파일/폴더를 실제로 삭제하는 함수
+fn delete_files_and_folders(failed_deletions: &[PathBuf]) {
+    for path in failed_deletions {
+        if path.is_file() {
+            if let Err(e) = fs::remove_file(path) {
+                eprintln!("파일 삭제 실패: {} - {}", path.display(), e);
+            } else {
+                println!("파일 삭제 완료: {}", path.display());
+            }
+        } else if path.is_dir() {
+            if let Err(e) = fs::remove_dir_all(path) {
+                eprintln!("폴더 삭제 실패: {} - {}", path.display(), e);
+            } else {
+                println!("폴더 삭제 완료: {}", path.display());
+            }
+        }
+    }
 }
